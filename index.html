@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sistema de Solvencia y Trimestres Vehiculares</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- QRCode.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <!-- Firebase SDKs -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            inst: {
+              wine: '#5c0d11',
+              wineDark: '#42080b',
+              wineLight: '#7a1217',
+              gold: '#d4af37',
+              goldHover: '#b89628',
+              goldLight: '#fbf7eb'
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    @media print {
+      body * {
+        visibility: hidden;
+      }
+      #printArea, #printArea * {
+        visibility: visible;
+      }
+      #printArea {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      .no-print {
+        display: none !important;
+      }
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans min-h-screen flex flex-col justify-between">
+
+  <!-- ================= ENCABEZADO Y MEMBRETES ================= -->
+  <header class="bg-inst-wine text-white shadow-md border-b-4 border-inst-gold">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
+      
+      <!-- Membrete Izquierdo (Editable) -->
+      <div class="flex items-center gap-3">
+        <img id="headerLogoLeft" src="https://via.placeholder.com/90x90/5c0d11/ffffff?text=Logo+1" 
+             alt="Logo Alcaldía" class="h-20 w-20 object-contain rounded-md bg-white p-1 border border-inst-gold shadow-sm">
+        <div class="text-center md:text-left">
+          <p id="lblRepub" class="text-xs uppercase tracking-wider text-amber-200 font-medium">República Bolivariana de Venezuela</p>
+          <h1 id="lblAlcaldia" class="text-lg md:text-xl font-bold leading-tight">Alcaldía del Municipio</h1>
+          <p id="lblDireccion" class="text-xs text-slate-200">Dirección de Hacienda y Administración Tributaria</p>
+        </div>
+      </div>
+
+      <!-- Membrete Derecho (Editable) -->
+      <div class="flex items-center gap-4">
+        <div class="text-right hidden md:block">
+          <span class="inline-block bg-inst-wineDark px-3 py-1 rounded text-xs text-amber-300 font-bold border border-inst-gold">
+            Año Fiscal 2026
+          </span>
+          <p class="text-xs text-slate-300 mt-1">Impuesto a los Vehículos</p>
+        </div>
+        <img id="headerLogoRight" src="https://via.placeholder.com/90x90/5c0d11/ffffff?text=Logo+2" 
+             alt="Escudo Institucional" class="h-20 w-20 object-contain rounded-md bg-white p-1 border border-inst-gold shadow-sm">
+      </div>
+
+    </div>
+  </header>
+
+  <!-- ================= NAVEGACIÓN RÁPIDA ================= -->
+  <nav class="bg-white border-b border-slate-200 shadow-sm no-print">
+    <div class="max-w-6xl mx-auto px-4 py-2.5 flex justify-between items-center">
+      <div class="flex gap-2">
+        <button onclick="mostrarModulo('consulta')" id="btnNavConsulta" 
+                class="px-4 py-1.5 rounded-md font-semibold text-sm transition bg-inst-wine text-white shadow">
+          <i class="fa-solid fa-car mr-1.5 text-inst-gold"></i> Consulta Pública
+        </button>
+        <button onclick="mostrarModulo('adminLogin')" id="btnNavAdmin" 
+                class="px-4 py-1.5 rounded-md font-semibold text-sm text-slate-600 hover:text-inst-wine hover:bg-slate-100 transition">
+          <i class="fa-solid fa-lock mr-1.5"></i> Panel Administrativo
+        </button>
+      </div>
+      <div id="syncStatus" class="text-xs text-slate-500 flex items-center gap-1.5">
+        <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span id="syncText">Sincronizado con la nube</span>
+      </div>
+    </div>
+  </nav>
+
+  <!-- ================= CONTENEDOR PRINCIPAL ================= -->
+  <main class="max-w-6xl mx-auto px-4 py-8 flex-grow w-full">
+
+    <!-- 1. MÓDULO: CONSULTA PÚBLICA -->
+    <section id="modConsulta" class="space-y-8">
+      
+      <!-- Buscador -->
+      <div class="bg-white rounded-xl shadow-md border-t-4 border-inst-gold p-6 max-w-2xl mx-auto text-center">
+        <h2 class="text-2xl font-bold text-inst-wine mb-2">Consulta de Trimestres Vehiculares</h2>
+        <p class="text-sm text-slate-600 mb-6">Consulte el estado tributario, morosidad y solvencia digital oficial de su vehículo.</p>
+
+        <form onsubmit="realizarConsulta(event)" class="flex flex-col sm:flex-row gap-3">
+          <div class="relative flex-grow">
+            <span class="absolute inset-y-0 left-0 flex items-center pl-3.5 text-slate-400">
+              <i class="fa-solid fa-magnifying-glass"></i>
+            </span>
+            <input type="text" id="inputPlaca" placeholder="Ingrese número de Placa (Ej: AB123CD)" 
+                   required class="w-full pl-10 pr-4 py-3 border-2 border-slate-300 rounded-lg text-lg uppercase font-bold text-slate-800 tracking-wider focus:outline-none focus:border-inst-wine transition">
+          </div>
+          <button type="submit" class="bg-inst-wine hover:bg-inst-wineLight text-white font-bold px-6 py-3 rounded-lg shadow-md transition flex items-center justify-center gap-2">
+            <span>Consultar</span>
+            <i class="fa-solid fa-arrow-right text-inst-gold"></i>
+          </button>
+        </form>
+
+        <div class="mt-4 flex flex-wrap justify-center gap-2 text-xs text-slate-500">
+          <span>Placas de demostración:</span>
+          <button type="button" onclick="probarPlaca('AB123CD')" class="text-inst-wine font-semibold underline">AB123CD (Solvente)</button>
+          <span>•</span>
+          <button type="button" onclick="probarPlaca('AC456EF')" class="text-amber-700 font-semibold underline">AC456EF (Pendiente)</button>
+        </div>
+      </div>
+
+      <!-- Resultados de la Consulta (Oculto inicialmente) -->
+      <div id="resultadoContainer" class="hidden space-y-6">
+        
+        <div class="bg-white rounded-xl shadow-md border border-slate-200 overflow-hidden">
+          
+          <!-- Encabezado de la Ficha -->
+          <div class="bg-slate-50 border-b border-slate-200 p-5 flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+            <div>
+              <span id="resTipoUso" class="px-2.5 py-0.5 rounded text-xs font-semibold bg-slate-200 text-slate-700">Particular</span>
+              <h3 id="resPlaca" class="text-2xl font-black text-slate-900 tracking-wide mt-1">AB123CD</h3>
+              <p id="resVehiculo" class="text-sm font-medium text-slate-600">CHEVROLET AVEO 2012 - GRIS</p>
+            </div>
+            <div id="resBadgeStatus">
+              <!-- Se inyecta dinámicamente -->
+            </div>
+          </div>
+
+          <!-- Datos del Propietario y Seriales -->
+          <div class="p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-sm border-b border-slate-100">
+            <div class="bg-slate-50 p-3 rounded-lg">
+              <span class="text-xs text-slate-500 block">Propietario</span>
+              <span id="resPropietario" class="font-bold text-slate-800">JUAN ALBERTO PÉREZ</span>
+            </div>
+            <div class="bg-slate-50 p-3 rounded-lg">
+              <span class="text-xs text-slate-500 block">Cédula / RIF</span>
+              <span id="resCedula" class="font-bold text-slate-800">V-18.452.369</span>
+            </div>
+            <div class="bg-slate-50 p-3 rounded-lg">
+              <span class="text-xs text-slate-500 block">Serial de Carrocería (NIV)</span>
+              <span id="resSerial" class="font-mono font-bold text-slate-800 text-xs">8A1BC2D34E567890</span>
+            </div>
+            <div class="bg-slate-50 p-3 rounded-lg">
+              <span class="text-xs text-slate-500 block">Última Actualización</span>
+              <span id="resFechaReg" class="font-bold text-slate-800">2026-05-10</span>
+            </div>
+          </div>
+
+          <!-- Desglose de los 4 Trimestres -->
+          <div class="p-6">
+            <h4 class="text-base font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <i class="fa-solid fa-calendar-check text-inst-gold"></i>
+              Estado de Períodos Fiscales (Año 2026)
+            </h4>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3" id="gridTrimestres">
+              <!-- Generado dinámicamente por JS -->
+            </div>
+
+            <!-- Resumen de Deuda y Botones -->
+            <div class="mt-6 p-4 rounded-xl bg-amber-50 border border-amber-200 flex flex-col sm:flex-row justify-between items-center gap-4">
+              <div>
+                <span class="text-xs text-amber-800 font-semibold block">Total Deuda Acumulada</span>
+                <span id="resTotalDeuda" class="text-2xl font-black text-inst-wine">0.00 Bs.</span>
+              </div>
+              <div class="flex gap-3 w-full sm:w-auto">
+                <button id="btnVerSolvencia" onclick="generarSolvenciaModal()" 
+                        class="flex-1 sm:flex-initial px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow transition flex items-center justify-center gap-2">
+                  <i class="fa-solid fa-file-shield"></i> Ver Certificado Oficial
+                </button>
+                <a id="btnSoporteWhatsapp" href="#" target="_blank" 
+                   class="flex-1 sm:flex-initial px-4 py-2.5 rounded-lg bg-green-500 hover:bg-green-600 text-white font-bold text-sm shadow transition flex items-center justify-center gap-2">
+                  <i class="fa-brands fa-whatsapp text-lg"></i> Asistencia
+                </a>
+              </div>
+            </div>
+
+          </div>
+
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- 2. MÓDULO: LOGIN ADMINISTRADOR (Clave: 23456) -->
+    <section id="modAdminLogin" class="hidden">
+      <div class="bg-white rounded-xl shadow-md border-t-4 border-inst-wine p-6 max-w-md mx-auto text-center">
+        <div class="w-16 h-16 rounded-full bg-slate-100 text-inst-wine flex items-center justify-center mx-auto mb-4 border border-slate-200">
+          <i class="fa-solid fa-shield-halved text-2xl text-inst-wine"></i>
+        </div>
+        <h3 class="text-xl font-bold text-slate-800 mb-1">Acceso Administrativo</h3>
+        <p class="text-xs text-slate-500 mb-6">Ingrese su credencial de seguridad para gestionar registros y configuraciones.</p>
+
+        <form onsubmit="autenticarAdmin(event)" class="space-y-4">
+          <div>
+            <input type="password" id="adminPassword" placeholder="Clave de Acceso" required 
+                   class="w-full px-4 py-3 border-2 border-slate-300 rounded-lg text-center text-lg font-bold tracking-widest focus:outline-none focus:border-inst-wine">
+          </div>
+          <p id="loginError" class="text-xs text-red-600 font-semibold hidden">Clave incorrecta. Inténtelo de nuevo.</p>
+          <button type="submit" class="w-full bg-inst-wine hover:bg-inst-wineLight text-white font-bold py-3 rounded-lg shadow transition">
+            Ingresar al Panel
+          </button>
+        </form>
+      </div>
+    </section>
+
+    <!-- 3. MÓDULO: PANEL ADMINISTRATIVO COMPLETO -->
+    <section id="modAdminDashboard" class="hidden space-y-6">
+      
+      <!-- Barra superior admin -->
+      <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 flex flex-wrap justify-between items-center gap-3">
+        <div>
+          <h2 class="text-xl font-bold text-slate-900">Panel de Control Tributario</h2>
+          <p class="text-xs text-slate-500">Gestión de solvencias, padrón vehicular y membretes</p>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="abrirModalNuevoVehiculo()" class="px-4 py-2 bg-inst-wine hover:bg-inst-wineLight text-white font-bold text-xs rounded-lg shadow transition flex items-center gap-1.5">
+            <i class="fa-solid fa-plus text-inst-gold"></i> Nuevo Vehículo
+          </button>
+          <button onclick="cerrarSesionAdmin()" class="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold text-xs rounded-lg transition">
+            <i class="fa-solid fa-arrow-right-from-bracket"></i> Salir
+          </button>
+        </div>
+      </div>
+
+      <!-- Configuración Rápida de Membretes -->
+      <div class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+        <h3 class="text-sm font-bold text-slate-800 mb-3 flex items-center gap-2">
+          <i class="fa-solid fa-sliders text-inst-gold"></i> Configuración de Membretes y Parámetros
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          <div>
+            <label class="block font-semibold text-slate-600 mb-1">URL Membrete Izquierdo:</label>
+            <input type="text" id="cfgLogoLeft" class="w-full p-2 border rounded border-slate-300 font-mono" placeholder="https://...">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-600 mb-1">URL Membrete Derecho:</label>
+            <input type="text" id="cfgLogoRight" class="w-full p-2 border rounded border-slate-300 font-mono" placeholder="https://...">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-600 mb-1">Teléfono WhatsApp Soporte:</label>
+            <input type="text" id="cfgWhatsapp" class="w-full p-2 border rounded border-slate-300 font-mono" placeholder="584120000000">
+          </div>
+        </div>
+        <div class="mt-3 flex justify-end">
+          <button onclick="guardarConfiguraciones()" class="px-4 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded shadow">
+            Guardar Parámetros
+          </button>
+        </div>
+      </div>
+
+      <!-- Tabla de Vehículos Registrados -->
+      <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+        <div class="p-4 border-b border-slate-200 flex justify-between items-center">
+          <h3 class="font-bold text-slate-800 text-sm">Padrón Vehicular Sincronizado</h3>
+          <span id="lblTotalRegistros" class="text-xs bg-slate-100 text-slate-600 px-2.5 py-1 rounded font-bold">Total: 0</span>
+        </div>
+        
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs text-slate-600">
+            <thead class="bg-slate-50 text-slate-700 uppercase font-semibold border-b border-slate-200">
+              <tr>
+                <th class="p-3">Placa</th>
+                <th class="p-3">Propietario / CI</th>
+                <th class="p-3">Vehículo</th>
+                <th class="p-3 text-center">Trimestres (1-4)</th>
+                <th class="p-3 text-right">Deuda</th>
+                <th class="p-3 text-center">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="tablaVehiculosBody" class="divide-y divide-slate-100 font-medium">
+              <!-- Filas dinámicas -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- ================= PIE DE PÁGINA ================= -->
+  <footer class="bg-slate-900 text-slate-400 py-6 border-t border-slate-800 text-xs no-print">
+    <div class="max-w-6xl mx-auto px-4 flex flex-col md:flex-row justify-between items-center gap-3">
+      <p>© 2026 Sistema Integral de Solvencias y Trimestres Municipales. Todos los derechos reservados.</p>
+      <div class="flex gap-4">
+        <span>Seguridad Criptográfica</span>
+        <span>•</span>
+        <span>Validación QR en Línea</span>
+      </div>
+    </div>
+  </footer>
+
+  <!-- ================= MODAL: REGISTRAR / EDITAR VEHÍCULO ================= -->
+  <div id="modalVehiculo" class="fixed inset-0 bg-black/60 hidden z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden border-t-4 border-inst-wine">
+      <div class="p-4 bg-slate-50 border-b border-slate-200 flex justify-between items-center">
+        <h4 id="modalVehiculoTitulo" class="font-bold text-slate-800">Registrar Nuevo Vehículo</h4>
+        <button onclick="cerrarModalVehiculo()" class="text-slate-400 hover:text-slate-700 text-lg">
+          <i class="fa-solid fa-xmark"></i>
+        </button>
+      </div>
+
+      <form onsubmit="guardarVehiculoForm(event)" class="p-5 space-y-3 text-xs">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Placa:</label>
+            <input type="text" id="fPlaca" required uppercase class="w-full p-2 border rounded font-mono font-bold uppercase">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Cédula / RIF:</label>
+            <input type="text" id="fCedula" required class="w-full p-2 border rounded font-bold">
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Nombre del Propietario:</label>
+          <input type="text" id="fPropietario" required class="w-full p-2 border rounded">
+        </div>
+
+        <div class="grid grid-cols-3 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Marca:</label>
+            <input type="text" id="fMarca" required class="w-full p-2 border rounded">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Modelo:</label>
+            <input type="text" id="fModelo" required class="w-full p-2 border rounded">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Año:</label>
+            <input type="number" id="fAnio" value="2020" required class="w-full p-2 border rounded">
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Color:</label>
+            <input type="text" id="fColor" value="Blanco" required class="w-full p-2 border rounded">
+          </div>
+          <div>
+            <label class="block font-semibold text-slate-700 mb-1">Serial Carrocería (NIV):</label>
+            <input type="text" id="fSerial" required class="w-full p-2 border rounded font-mono">
+          </div>
+        </div>
+
+        <!-- Estado de Trimestres -->
+        <div class="border-t pt-3">
+          <label class="block font-bold text-slate-800 mb-2">Estado de Trimestres (Año 2026):</label>
+          <div class="grid grid-cols-4 gap-2 text-center">
+            <div>
+              <span class="block text-[11px] font-bold text-slate-600 mb-1">1er Trim</span>
+              <select id="fT1" class="w-full p-1.5 border rounded font-semibold text-xs">
+                <option value="Solvente">Solvente</option>
+                <option value="Pendiente">Pendiente</option>
+              </select>
+            </div>
+            <div>
+              <span class="block text-[11px] font-bold text-slate-600 mb-1">2do Trim</span>
+              <select id="fT2" class="w-full p-1.5 border rounded font-semibold text-xs">
+                <option value="Solvente">Solvente</option>
+                <option value="Pendiente">Pendiente</option>
+              </select>
+            </div>
+            <div>
+              <span class="block text-[11px] font-bold text-slate-600 mb-1">3er Trim</span>
+              <select id="fT3" class="w-full p-1.5 border rounded font-semibold text-xs">
+                <option value="Solvente">Solvente</option>
+                <option value="Pendiente">Pendiente</option>
+              </select>
+            </div>
+            <div>
+              <span class="block text-[11px] font-bold text-slate-600 mb-1">4to Trim</span>
+              <select id="fT4" class="w-full p-1.5 border rounded font-semibold text-xs">
+                <option value="Solvente">Solvente</option>
+                <option value="Pendiente">Pendiente</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <label class="block font-semibold text-slate-700 mb-1">Monto Deuda en Bs (0 si está solvente):</label>
+          <input type="number" step="0.01" id="fDeuda" value="0.00" class="w-full p-2 border rounded font-bold text-inst-wine">
+        </div>
+
+        <div class="flex justify-end gap-2 pt-3 border-t">
+          <button type="button" onclick="cerrarModalVehiculo()" class="px-3 py-1.5 bg-slate-200 text-slate-700 rounded font-bold">Cancelar</button>
+          <button type="submit" class="px-4 py-1.5 bg-inst-wine text-white font-bold rounded shadow">Guardar Vehículo</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ================= MODAL / CERTIFICADO IMPRIMIBLE ================= -->
+  <div id="modalCertificado" class="fixed inset-0 bg-black/70 hidden z-50 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+    <div class="bg-white rounded-xl shadow-2xl max-w-3xl w-full p-6 sm:p-10 relative my-8 border-4 border-double border-slate-300" id="printArea">
+      
+      <!-- Botones de Acción (Ocultos en impresión) -->
+      <div class="no-print absolute top-3 right-3 flex gap-2">
+        <button onclick="window.print()" class="px-3 py-1.5 bg-inst-wine hover:bg-inst-wineLight text-white rounded font-bold text-xs shadow flex items-center gap-1.5">
+          <i class="fa-solid fa-print"></i> Imprimir Solvencia
+        </button>
+        <button onclick="cerrarCertificadoModal()" class="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded font-bold text-xs">
+          Cerrar
+        </button>
+      </div>
+
+      <!-- Membretes del Certificado Oficial -->
+      <div class="flex justify-between items-center border-b-2 border-slate-800 pb-4 mb-6">
+        <img id="certLogoLeft" src="" alt="Logo 1" class="h-20 w-20 object-contain">
+        <div class="text-center">
+          <h5 class="text-xs font-serif font-bold uppercase tracking-wider text-slate-600">República Bolivariana de Venezuela</h5>
+          <h3 class="text-base sm:text-lg font-serif font-bold text-slate-900 uppercase">Superintendencia de Administración Tributaria</h3>
+          <p class="text-xs font-serif text-slate-700">División de Rentas Municipales - Impuesto sobre Vehículos</p>
+        </div>
+        <img id="certLogoRight" src="" alt="Logo 2" class="h-20 w-20 object-contain">
+      </div>
+
+      <!-- Título de Solvencia -->
+      <div class="text-center my-6">
+        <span class="text-xs font-mono tracking-widest text-slate-500 uppercase">Certificado Electrónico de Solvencia</span>
+        <h2 class="text-2xl font-serif font-extrabold text-inst-wine tracking-wide uppercase mt-1">CERTIFICADO DE SOLVENCIA VEHICULAR</h2>
+        <p class="text-xs text-slate-500 mt-1">Control N°: <span id="certControl" class="font-mono font-bold text-slate-800">SOLV-2026-00000</span></p>
+      </div>
+
+      <!-- Texto Certificador -->
+      <div class="text-justify text-xs sm:text-sm text-slate-800 leading-relaxed space-y-3 font-serif">
+        <p>
+          La Dirección de Hacienda Municipal hace constar por medio del presente documento que el vehículo que se identifica a continuación se encuentra 
+          <strong class="text-emerald-800 uppercase">SOLVENTE</strong> por concepto de tributos sobre vehículos correspondientes al período fiscal vigente:
+        </p>
+
+        <!-- Cuadro de Datos del Vehículo -->
+        <table class="w-full border-collapse border border-slate-400 my-4 text-xs">
+          <tr class="bg-slate-100">
+            <td class="border border-slate-400 p-2 font-bold w-1/4">Placa:</td>
+            <td id="certPlaca" class="border border-slate-400 p-2 font-black text-sm">--</td>
+            <td class="border border-slate-400 p-2 font-bold w-1/4">Año / Modelo:</td>
+            <td id="certModelo" class="border border-slate-400 p-2">--</td>
+          </tr>
+          <tr>
+            <td class="border border-slate-400 p-2 font-bold">Propietario:</td>
+            <td id="certPropietario" class="border border-slate-400 p-2">--</td>
+            <td class="border border-slate-400 p-2 font-bold">Cédula / RIF:</td>
+            <td id="certCedula" class="border border-slate-400 p-2">--</td>
+          </tr>
+          <tr class="bg-slate-100">
+            <td class="border border-slate-400 p-2 font-bold">Serial Carrocería:</td>
+            <td id="certSerial" class="border border-slate-400 p-2 font-mono" colspan="3">--</td>
+          </tr>
+        </table>
+
+        <p class="text-xs text-slate-600 italic">
+          Constancia expedida a petición de parte interesada a los efectos pertinentes. La autenticidad del presente instrumento puede ser validada escaneando el código QR impreso al margen inferior.
+        </p>
+      </div>
+
+      <!-- Pie del Certificado: QR y Firma/Sello -->
+      <div class="mt-8 pt-6 border-t border-slate-200 flex justify-between items-end">
+        <div class="flex items-center gap-3">
+          <div id="qrcode" class="border p-1 bg-white"></div>
+          <div class="text-[10px] text-slate-500 font-mono">
+            <p>FIRMA DIGITAL: <span id="certHash">--</span></p>
+            <p>VÁLIDO HASTA: 31/12/2026</p>
+          </div>
+        </div>
+
+        <div class="text-center w-56">
+          <div class="border-b border-slate-800 pb-1 mb-1 font-serif text-xs font-bold text-slate-800">
+            Firma Autorizada
+          </div>
+          <p class="text-[10px] uppercase text-slate-600 font-serif">Dirección de Rentas Municipales</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ================= LÓGICA JAVASCRIPT & PERSISTENCIA ================= -->
+  <script>
+    // 1. CLAVE ADMINISTRATIVA FIJADA
+    const ADMIN_KEY = "23456";
+
+    // 2. CONFIGURACIÓN FIREBASE (REEMPLAZA CON TU PROYECTO DE FIREBASE SI LO DESEAS)
+    // Funciona con fallback inmediato en LocalStorage si no hay conexión remota
+    const firebaseConfig = {
+      apiKey: "AIzaSyFakeKey_TrimestresAutoApp2026",
+      authDomain: "trimestres-solvencia.firebaseapp.com",
+      projectId: "trimestres-solvencia",
+      storageBucket: "trimestres-solvencia.appspot.com",
+      messagingSenderId: "1234567890",
+      appId: "1:1234567890:web:abcdef123456"
+    };
+
+    let db = null;
+    try {
+      firebase.initializeApp(firebaseConfig);
+      db = firebase.firestore();
+    } catch (e) {
+      console.warn("Modo local activo:", e);
+    }
+
+    // 3. BASE DE DATOS INICIAL PREDETERMINADA
+    const DEFAULT_VEHICULOS = {
+      "AB123CD": {
+        placa: "AB123CD",
+        cedula: "V-18.452.369",
+        propietario: "JUAN ALBERTO PÉREZ",
+        marca: "CHEVROLET",
+        modelo: "AVEO",
+        anio: "2012",
+        color: "GRIS",
+        serial: "8A1BC2D34E567890",
+        uso: "Particular",
+        t1: "Solvente",
+        t2: "Solvente",
+        t3: "Solvente",
+        t4: "Solvente",
+        deuda: 0.00,
+        fechaActualizacion: "2026-05-10"
+      },
+      "AC456EF": {
+        placa: "AC456EF",
+        cedula: "V-22.105.789",
+        propietario: "MARÍA ELENA GÓMEZ",
+        marca: "TOYOTA",
+        modelo: "COROLLA",
+        anio: "2015",
+        color: "BLANCO",
+        serial: "9B2CD3E45F678901",
+        uso: "Particular",
+        t1: "Solvente",
+        t2: "Pendiente",
+        t3: "Pendiente",
+        t4: "Pendiente",
+        deuda: 450.00,
+        fechaActualizacion: "2026-06-01"
+      }
+    };
+
+    const DEFAULT_CONFIG = {
+      logoLeft: "https://via.placeholder.com/90x90/5c0d11/ffffff?text=Logo+1",
+      logoRight: "https://via.placeholder.com/90x90/5c0d11/ffffff?text=Logo+2",
+      whatsapp: "584124310782"
+    };
+
+    let vehiculosData = {};
+    let appConfig = {};
+    let vehiculoActualConsulta = null;
+
+    // Inicializar datos
+    function init() {
+      const storedConfig = localStorage.getItem("trimestres_config");
+      appConfig = storedConfig ? JSON.parse(storedConfig) : DEFAULT_CONFIG;
+      aplicarConfiguracion();
+
+      const storedVehiculos = localStorage.getItem("trimestres_db");
+      vehiculosData = storedVehiculos ? JSON.parse(storedVehiculos) : DEFAULT_VEHICULOS;
+      
+      // Intentar sincronizar con Firestore si está disponible
+      if (db) {
+        db.collection("vehiculos").get().then((querySnapshot) => {
+          if (!querySnapshot.empty) {
+            querySnapshot.forEach((doc) => {
+              vehiculosData[doc.id] = doc.data();
+            });
+            localStorage.setItem("trimestres_db", JSON.stringify(vehiculosData));
+            renderTablaVehiculos();
+          }
+        }).catch(err => {
+          document.getElementById("syncText").innerText = "Modo Local (Offline)";
+        });
+      }
+      renderTablaVehiculos();
+    }
+
+    function aplicarConfiguracion() {
+      document.getElementById("headerLogoLeft").src = appConfig.logoLeft;
+      document.getElementById("headerLogoRight").src = appConfig.logoRight;
+      document.getElementById("certLogoLeft").src = appConfig.logoLeft;
+      document.getElementById("certLogoRight").src = appConfig.logoRight;
+      document.getElementById("cfgLogoLeft").value = appConfig.logoLeft;
+      document.getElementById("cfgLogoRight").value = appConfig.logoRight;
+      document.getElementById("cfgWhatsapp").value = appConfig.whatsapp;
+    }
+
+    function guardarConfiguraciones() {
+      appConfig.logoLeft = document.getElementById("cfgLogoLeft").value.trim() || DEFAULT_CONFIG.logoLeft;
+      appConfig.logoRight = document.getElementById("cfgLogoRight").value.trim() || DEFAULT_CONFIG.logoRight;
+      appConfig.whatsapp = document.getElementById("cfgWhatsapp").value.trim() || DEFAULT_CONFIG.whatsapp;
+      
+      localStorage.setItem("trimestres_config", JSON.stringify(appConfig));
+      aplicarConfiguracion();
+      alert("Configuraciones guardadas satisfactoriamente.");
+    }
+
+    // Navegación entre módulos
+    function mostrarModulo(modulo) {
+      document.getElementById("modConsulta").classList.add("hidden");
+      document.getElementById("modAdminLogin").classList.add("hidden");
+      document.getElementById("modAdminDashboard").classList.add("hidden");
+
+      if (modulo === 'consulta') {
+        document.getElementById("modConsulta").classList.remove("hidden");
+      } else if (modulo === 'adminLogin') {
+        document.getElementById("modAdminLogin").classList.remove("hidden");
+      } else if (modulo === 'adminDashboard') {
+        document.getElementById("modAdminDashboard").classList.remove("hidden");
+      }
+    }
+
+    // Consulta de Placa
+    function probarPlaca(placa) {
+      document.getElementById("inputPlaca").value = placa;
+      realizarConsulta(new Event('submit'));
+    }
+
+    function realizarConsulta(e) {
+      if (e) e.preventDefault();
+      const placaBuscada = document.getElementById("inputPlaca").value.trim().toUpperCase();
+      const vehiculo = vehiculosData[placaBuscada];
+
+      if (!vehiculo) {
+        alert("La placa ingresada (" + placaBuscada + ") no se encuentra registrada en el sistema.");
+        document.getElementById("resultadoContainer").classList.add("hidden");
+        return;
+      }
+
+      vehiculoActualConsulta = vehiculo;
+      document.getElementById("resPlaca").innerText = vehiculo.placa;
+      document.getElementById("resVehiculo").innerText = `${vehiculo.marca} ${vehiculo.modelo} (${vehiculo.anio}) - ${vehiculo.color}`;
+      document.getElementById("resPropietario").innerText = vehiculo.propietario;
+      document.getElementById("resCedula").innerText = vehiculo.cedula;
+      document.getElementById("resSerial").innerText = vehiculo.serial;
+      document.getElementById("resFechaReg").innerText = vehiculo.fechaActualizacion || "2026-01-01";
+      document.getElementById("resTotalDeuda").innerText = parseFloat(vehiculo.deuda).toFixed(2) + " Bs.";
+
+      // Badges
+      const esSolvente = vehiculo.deuda <= 0;
+      const badgeDiv = document.getElementById("resBadgeStatus");
+      const btnSolvencia = document.getElementById("btnVerSolvencia");
+      
+      if (esSolvente) {
+        badgeDiv.innerHTML = `<span class="px-3 py-1.5 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300">
+                                <i class="fa-solid fa-circle-check mr-1"></i> SOLVENTE
+                              </span>`;
+        btnSolvencia.classList.remove("hidden");
+      } else {
+        badgeDiv.innerHTML = `<span class="px-3 py-1.5 rounded-full text-xs font-black bg-amber-100 text-amber-800 border border-amber-300">
+                                <i class="fa-solid fa-triangle-exclamation mr-1"></i> DEUDA PENDIENTE
+                              </span>`;
+        btnSolvencia.classList.add("hidden");
+      }
+
+      // Desglose de Trimestres
+      const trimestres = [
+        { nombre: "1er Trimestre", estado: vehiculo.t1 },
+        { nombre: "2do Trimestre", estado: vehiculo.t2 },
+        { nombre: "3er Trimestre", estado: vehiculo.t3 },
+        { nombre: "4to Trimestre", estado: vehiculo.t4 }
+      ];
+
+      const grid = document.getElementById("gridTrimestres");
+      grid.innerHTML = "";
+      trimestres.forEach(t => {
+        const solvente = t.estado === "Solvente";
+        grid.innerHTML += `
+          <div class="p-3 rounded-lg border ${solvente ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200'}">
+            <span class="text-xs font-bold text-slate-700 block">${t.nombre}</span>
+            <span class="text-xs font-black ${solvente ? 'text-emerald-700' : 'text-amber-700'}">
+              <i class="fa-solid ${solvente ? 'fa-check' : 'fa-clock'} mr-1"></i> ${t.estado}
+            </span>
+          </div>
+        `;
+      });
+
+      // Configurar enlace de WhatsApp
+      const mensaje = `Hola, solicito información sobre la solvencia de trimestres para la placa: ${vehiculo.placa}`;
+      document.getElementById("btnSoporteWhatsapp").href = `https://wa.me/${appConfig.whatsapp}?text=${encodeURIComponent(mensaje)}`;
+
+      document.getElementById("resultadoContainer").classList.remove("hidden");
+    }
+
+    // Autenticación Admin (Clave: 23456)
+    function autenticarAdmin(e) {
+      e.preventDefault();
+      const pass = document.getElementById("adminPassword").value;
+      if (pass === ADMIN_KEY) {
+        document.getElementById("loginError").classList.add("hidden");
+        document.getElementById("adminPassword").value = "";
+        mostrarModulo('adminDashboard');
+      } else {
+        document.getElementById("loginError").classList.remove("hidden");
+      }
+    }
+
+    function cerrarSesionAdmin() {
+      mostrarModulo('consulta');
+    }
+
+    // Render Tabla Vehículos en Admin
+    function renderTablaVehiculos() {
+      const tbody = document.getElementById("tablaVehiculosBody");
+      tbody.innerHTML = "";
+      const keys = Object.keys(vehiculosData);
+      document.getElementById("lblTotalRegistros").innerText = `Total: ${keys.length}`;
+
+      keys.forEach(k => {
+        const v = vehiculosData[k];
+        tbody.innerHTML += `
+          <tr class="hover:bg-slate-50">
+            <td class="p-3 font-mono font-bold text-slate-900">${v.placa}</td>
+            <td class="p-3">
+              <div class="font-bold">${v.propietario}</div>
+              <div class="text-[10px] text-slate-400">${v.cedula}</div>
+            </td>
+            <td class="p-3">${v.marca} ${v.modelo} (${v.anio})</td>
+            <td class="p-3 text-center">
+              <span class="inline-block px-1.5 py-0.5 rounded text-[10px] ${v.t1 === 'Solvente' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">T1</span>
+              <span class="inline-block px-1.5 py-0.5 rounded text-[10px] ${v.t2 === 'Solvente' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">T2</span>
+              <span class="inline-block px-1.5 py-0.5 rounded text-[10px] ${v.t3 === 'Solvente' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">T3</span>
+              <span class="inline-block px-1.5 py-0.5 rounded text-[10px] ${v.t4 === 'Solvente' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}">T4</span>
+            </td>
+            <td class="p-3 text-right font-bold ${v.deuda > 0 ? 'text-amber-800' : 'text-emerald-700'}">${parseFloat(v.deuda).toFixed(2)} Bs.</td>
+            <td class="p-3 text-center">
+              <button onclick="editarVehiculo('${v.placa}')" class="text-blue-600 hover:text-blue-800 mx-1"><i class="fa-solid fa-pen-to-square"></i></button>
+              <button onclick="eliminarVehiculo('${v.placa}')" class="text-red-600 hover:text-red-800 mx-1"><i class="fa-solid fa-trash"></i></button>
+            </td>
+          </tr>
+        `;
+      });
+    }
+
+    // CRUD Vehículos
+    function abrirModalNuevoVehiculo() {
+      document.getElementById("modalVehiculoTitulo").innerText = "Registrar Nuevo Vehículo";
+      document.getElementById("fPlaca").disabled = false;
+      document.getElementById("fPlaca").value = "";
+      document.getElementById("fCedula").value = "";
+      document.getElementById("fPropietario").value = "";
+      document.getElementById("fMarca").value = "";
+      document.getElementById("fModelo").value = "";
+      document.getElementById("fAnio").value = "2020";
+      document.getElementById("fColor").value = "";
+      document.getElementById("fSerial").value = "";
+      document.getElementById("fT1").value = "Solvente";
+      document.getElementById("fT2").value = "Solvente";
+      document.getElementById("fT3").value = "Solvente";
+      document.getElementById("fT4").value = "Solvente";
+      document.getElementById("fDeuda").value = "0.00";
+      document.getElementById("modalVehiculo").classList.remove("hidden");
+    }
+
+    function editarVehiculo(placa) {
+      const v = vehiculosData[placa];
+      if (!v) return;
+      document.getElementById("modalVehiculoTitulo").innerText = "Editar Vehículo: " + placa;
+      document.getElementById("fPlaca").value = v.placa;
+      document.getElementById("fPlaca").disabled = true;
+      document.getElementById("fCedula").value = v.cedula;
+      document.getElementById("fPropietario").value = v.propietario;
+      document.getElementById("fMarca").value = v.marca;
+      document.getElementById("fModelo").value = v.modelo;
+      document.getElementById("fAnio").value = v.anio;
+      document.getElementById("fColor").value = v.color;
+      document.getElementById("fSerial").value = v.serial;
+      document.getElementById("fT1").value = v.t1;
+      document.getElementById("fT2").value = v.t2;
+      document.getElementById("fT3").value = v.t3;
+      document.getElementById("fT4").value = v.t4;
+      document.getElementById("fDeuda").value = v.deuda;
+      document.getElementById("modalVehiculo").classList.remove("hidden");
+    }
+
+    function cerrarModalVehiculo() {
+      document.getElementById("modalVehiculo").classList.add("hidden");
+    }
+
+    function guardarVehiculoForm(e) {
+      e.preventDefault();
+      const placa = document.getElementById("fPlaca").value.trim().toUpperCase();
+      
+      const obj = {
+        placa: placa,
+        cedula: document.getElementById("fCedula").value.trim(),
+        propietario: document.getElementById("fPropietario").value.trim().toUpperCase(),
+        marca: document.getElementById("fMarca").value.trim().toUpperCase(),
+        modelo: document.getElementById("fModelo").value.trim().toUpperCase(),
+        anio: document.getElementById("fAnio").value.trim(),
+        color: document.getElementById("fColor").value.trim().toUpperCase(),
+        serial: document.getElementById("fSerial").value.trim().toUpperCase(),
+        uso: "Particular",
+        t1: document.getElementById("fT1").value,
+        t2: document.getElementById("fT2").value,
+        t3: document.getElementById("fT3").value,
+        t4: document.getElementById("fT4").value,
+        deuda: parseFloat(document.getElementById("fDeuda").value) || 0,
+        fechaActualizacion: new Date().toISOString().split('T')[0]
+      };
+
+      vehiculosData[placa] = obj;
+      localStorage.setItem("trimestres_db", JSON.stringify(vehiculosData));
+
+      if (db) {
+        db.collection("vehiculos").doc(placa).set(obj).catch(console.error);
+      }
+
+      cerrarModalVehiculo();
+      renderTablaVehiculos();
+      alert("Vehículo " + placa + " guardado con éxito.");
+    }
+
+    function eliminarVehiculo(placa) {
+      if (confirm("¿Está seguro de eliminar el registro de la placa " + placa + "?")) {
+        delete vehiculosData[placa];
+        localStorage.setItem("trimestres_db", JSON.stringify(vehiculosData));
+        if (db) {
+          db.collection("vehiculos").doc(placa).delete().catch(console.error);
+        }
+        renderTablaVehiculos();
+      }
+    }
+
+    // Modal Certificado Oficial y Código QR
+    function generarSolvenciaModal() {
+      if (!vehiculoActualConsulta) return;
+      const v = vehiculoActualConsulta;
+
+      document.getElementById("certPlaca").innerText = v.placa;
+      document.getElementById("certModelo").innerText = `${v.marca} ${v.modelo} (${v.anio})`;
+      document.getElementById("certPropietario").innerText = v.propietario;
+      document.getElementById("certCedula").innerText = v.cedula;
+      document.getElementById("certSerial").innerText = v.serial;
+      
+      const numControl = "SOLV-2026-" + Math.floor(100000 + Math.random() * 900000);
+      document.getElementById("certControl").innerText = numControl;
+      document.getElementById("certHash").innerText = "SHA256-" + Math.random().toString(36).substring(2, 10).toUpperCase();
+
+      // Generar Código QR
+      const qrContainer = document.getElementById("qrcode");
+      qrContainer.innerHTML = "";
+      const qrData = `VALIDACION-OFICIAL: ${numControl} | PLACA: ${v.placa} | ESTADO: SOLVENTE HASTA 31-12-2026`;
+      new QRCode(qrContainer, {
+        text: qrData,
+        width: 80,
+        height: 80
+      });
+
+      document.getElementById("modalCertificado").classList.remove("hidden");
+    }
+
+    function cerrarCertificadoModal() {
+      document.getElementById("modalCertificado").classList.add("hidden");
+    }
+
+    // Iniciar al cargar
+    window.onload = init;
+  </script>
+</body>
+</html>
